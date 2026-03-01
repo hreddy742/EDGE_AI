@@ -1,0 +1,100 @@
+# =========================
+# Secrets / env
+# =========================
+.env
+.envrc
+.streamlit/secrets.toml
+
+# =========================
+# Virtual environments
+# =========================
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# =========================
+# Python cache
+# =========================
+__pycache__/
+*.py[codz]
+*$py.class
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Local DB / artifacts
+# =========================
+*.db
+*.sqlite3
+*.sqlite
+edgeguard.db
+
+# =========================
+# ML / Model weights
+# =========================
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# =========================
+# Data (videos/snapshots)
+# Keep folder structure with .gitkeep
+# =========================
+data/**
+!data/.gitkeep
+!data/videos/.gitkeep
+!data/snapshots/.gitkeep
+
+# If you want to track non-heavy configs inside data, unignore them:
+# !data/**/*.json
+# !data/**/*.yaml
+
+# =========================
+# Build / packaging
+# =========================
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+
+# =========================
+# Test / coverage
+# =========================
+.pytest_cache/
+.coverage*
+htmlcov/
+.tox/
+.nox/
+
+# =========================
+# IDEs
+# =========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# =========================
+# Redis / runtime artifacts
+# =========================
+*.rdb
+*.aof
+*.pid
+# Edgeguard runtime artifacts
+edgeguard/data/**
+!edgeguard/data/.gitkeep
+!edgeguard/data/videos/.gitkeep
+!edgeguard/data/snapshots/.gitkeep
+edgeguard/*.log
+edgeguard/*.db
+edgeguard/*.bak
+edgeguard/*.corrupt.*
+
