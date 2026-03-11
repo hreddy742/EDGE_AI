@@ -1,0 +1,1690 @@
+# EDGEGUARD TECHNICAL AUDIT REPORT
+## Retail Theft Detection: 17 Repository Analysis + EdgeGuard Deep Audit + Upgrade Blueprint
+
+Generated: 2026-03-11
+EDGE_AI branch: github-main (commit 92294a4)
+
+---
+
+## 1. EXECUTIVE SUMMARY
+
+This report is a complete engineering-grade audit of 17 GitHub repositories from the "Retail Theft / Shoplifting Detection Research Sources" document, followed by a deep file-level audit of the EdgeGuard (EDGE_AI) codebase, a cross-repo comparison, and a final upgrade blueprint.
+
+Key findings in brief:
+
+- Of the 17 external repos, only 3 are genuinely production-relevant (Repos 1, 4, 11). The rest are student notebooks, hackathon demos, or non-functional scaffolds.
+- EdgeGuard is architecturally the most production-complete system in this entire review — it has temporal FSM logic, zone awareness, multi-camera ReID, evidence clips, a FastAPI backend, Streamlit UI, and SQLite persistence that no other repo comes close to.
+- EdgeGuard's critical gap is that its detection brain remains single-model (YOLOv8n only), with no training pipeline, no benchmark/evaluation tooling, no swappable model framework, no advanced concealment models, and no temporal video classifier.
+- The most valuable borrowable ideas from the external repos are: optical flow-based temporal modeling (Repo 4), POS/counter transaction correlation (Repo 3), pose+XGBoost hybrid approach (Repo 13), GCAE+Transformer anomaly detection (Repo 7), and full-stack alert delivery (Repo 1).
+
+---
+
+## 2. REPOSITORY INVENTORY
+
+| #  | Repo Name                                   | Link                                                                                    | Main Purpose                                    | Lang/Framework              | Models                                               | Type              |
+|----|---------------------------------------------|-----------------------------------------------------------------------------------------|-------------------------------------------------|-----------------------------|------------------------------------------------------|-------------------|
+| 1  | vahapogut/Theft-Detection                   | github.com/vahapogut/Theft-Detection                                                    | Full-stack theft detection + face recognition   | Python/FastAPI + Next.js    | YOLOv8n, YOLOv8n-pose, custom shoplifting.pt, face_recognition | Production   |
+| 2  | OmRajpurkar/Alert-Generation                | github.com/OmRajpurkar/Alert-Generation-on-Detection-of-Suspicious-Activity...          | Transfer learning video classifier             | Python/Keras                | ResNet50 (ImageNet -> 3-class)                       | Research          |
+| 3  | raoh97-code/theft-detection-system          | github.com/raoh97-code/theft-detection-system                                           | POS-correlated theft detection                 | Python + Node.js + React    | YOLOv8n (person tracking only)                       | Demo/Prototype    |
+| 4  | 1amitos1/Shoplifting-Detection              | github.com/1amitos1/Shoplifting-Detection                                               | 3D-CNN temporal concealment detection          | Python/TF-Keras             | Gate_Flow_SlowFast (custom 3D-CNN + optical flow)    | Research/Prototype|
+| 5  | alich03/Shoplifting-Detection-using-yolov8  | github.com/alich03/Shoplifting-Detection-using-yolov8                                   | Binary shoplifting detection via custom YOLOv8 | Python/Ultralytics          | Custom YOLOv8 (shoplifting_wights.pt)                | Demo              |
+| 6  | JocelynVelarde/Hack-Harvard-2024            | github.com/JocelynVelarde/Hack-Harvard-2024                                             | LLM-enhanced theft analysis dashboard          | Python/Streamlit + Django   | YOLOv8 + custom behavior model + OpenAI GPT          | Demo/Hackathon    |
+| 7  | TeCSAR-UNCC/Shopformer                      | github.com/TeCSAR-UNCC/Shopformer                                                       | GCN+Transformer anomaly detection on pose data | Python/PyTorch              | GCAE (Graph Conv Autoencoder) + Transformer          | Research (CVPR 2025)|
+| 8  | rahulkundelwalll/Shoplifting-Detection      | github.com/rahulkundelwalll/Shoplifting-Detection-Algorithm-Using-Video-Analysis        | Frame-level binary classifier                  | Python/TF-Keras             | EfficientNetV2B0 + HOG features                      | Research/Student  |
+| 9  | alzilqad/shoplifting-detection              | github.com/alzilqad/shoplifting-detection                                               | 5-model CNN benchmark + live inference         | Python/TF-Keras             | VGG16/19, ResNet50, DenseNet121, InceptionV3         | Research/Student  |
+| 10 | danishkhan24/Shoplifting-Detection          | github.com/danishkhan24/Shoplifting-Detection                                           | Batch YOLO inference + GluonCV action recog.   | Python                      | Custom YOLO + GluonCV/MXNet                          | Research/Student  |
+| 11 | donatmat/shoplift-detector                  | github.com/donatmat/shoplift-detector                                                   | LRCN temporal motion classifier (pip package)  | Python/TF-Keras             | LRCN (CNN+LSTM) on frame differencing                | Prototype/Package |
+| 12 | UmerElsaharty/shoplifting-using-yolo-nas-SAM| github.com/UmerElsaharty/shoplifting-detection-using-yolo-nas-and-SAM                  | YOLO-NAS + SAM segmentation + HF video classi. | Python/PyTorch              | YOLO-NAS, SAM, HuggingFace VideoMAE                  | Research          |
+| 13 | sg-sparsh-goyal/Suspicious-Activity-Detection| github.com/sg-sparsh-goyal/Suspicious-Activity-Detection                               | Pose keypoints -> XGBoost binary classifier    | Python                      | YOLOv8-pose + XGBoost                               | Prototype         |
+| 14 | Duaa-Swalmeh/Cellula_CV_WEEK7               | github.com/Duaa-Swalmeh/Cellula_CV_WEEK7                                               | EfficientNet+LSTM / VideoMAE classifier        | Python/PyTorch              | EfficientNetB0+LSTM, VideoMAE                        | Research/Student  |
+| 15 | kaledhoshme123/Early-Detection-of-Collective| github.com/kaledhoshme123/Early-Detection-of-Collective-or-Individual-Theft-Attempts... | LRCN 3-class surveillance classifier (no code) | N/A (paper only)            | LRCN (3-class)                                       | Research (paper)  |
+| 16 | AaravDoesRobotics/crimedetection            | github.com/AaravDoesRobotics/crimedetection                                             | React Native camera app (no ML)                | TypeScript/React Native     | None                                                 | Scaffold/Abandoned|
+| 17 | Premaramkarthik/pipeline_opencv             | github.com/Premaramkarthik/pipeline_opencv                                              | 404 — OOP teaching demo using YOLOv8           | Python                      | YOLOv8n (COCO, single image)                         | Educational       |
+
+---
+
+## 3. DETAILED AUDIT OF EACH EXTERNAL REPOSITORY
+
+---
+
+### REPO 1 AUDIT — vahapogut/Theft-Detection ("TheftGuard AI")
+
+1. REPO OVERVIEW
+Solves the problem of real-time shoplifting detection in retail environments with a complete full-stack system.
+Covers surveillance, behavioral analysis, face recognition, multi-camera management, alerting, and historical analysis.
+The most production-complete external repo reviewed. Production-grade architecture, though with some rough edges.
+
+2. PROJECT STRUCTURE
+  backend.py          FastAPI server — all detection, WebSocket, camera management
+  main.py             Standalone/demo detection pipeline
+  settings.json       Email, Telegram, ROI config
+  dashboard/          Next.js 14 frontend
+  yolov8n.pt          Object detection weights
+  yolov8n-pose.pt     Pose estimation weights
+  shoplifting.pt      Optional custom theft classifier
+  theft_detection.db  SQLite
+  alerts/             Snapshot storage
+
+Entry point: backend.py (FastAPI app). No requirements version pinning.
+
+3. CODE ARCHITECTURE
+Monolithic backend.py handles everything: camera thread management, YOLO inference, pose estimation, face
+recognition, ROI polygon checks, alert delivery, and WebSocket streaming. Not modular — everything is in one
+file. The Next.js frontend is decoupled and communicates via REST + WebSocket.
+
+4. MODEL AUDIT
+
+  Model               | Purpose                               | Lightweight? | Real-time? | Edge viable?
+  YOLOv8n             | Person + 17 high-theft-risk classes   | Yes (nano)   | Yes        | Yes (CPU viable)
+  YOLOv8n-pose        | Wrist/shoulder keypoints              | Yes          | Yes        | Yes
+  shoplifting.pt      | Custom theft action classifier        | Unknown      | Unknown    | Unknown (black box)
+  face_recognition    | Blacklist/VIP identification          | Medium       | Medium     | No (dlib heavy)
+
+Object detection runs every 5 frames. Pose runs every frame.
+
+5. FEATURE AUDIT
+- Person detection: YOLOv8n, every 5th frame
+- Pose estimation: YOLOv8n-pose, per-frame, wrist and shoulder keypoints
+- ROI zones: User-drawn polygons via mouse callback; OpenCV pointPolygonTest() for inside/outside
+- Behavioral heuristics:
+    * Hand-to-torso distance below threshold -> concealment flag
+    * Shoulder-to-hip vertical anomaly -> bending detection
+    * 5-second dwell time -> loitering alert
+    * Alert cooldown: 3 seconds per camera
+- Face recognition: Every 2 seconds per tracked person; compares against SQLite-stored encodings (pickled numpy);
+  supports blacklist + VIP whitelist
+- Multi-camera: Multiple RTSP/webcam sources managed via concurrent threads
+- Alerting: Email via SMTP (image attachment) + Telegram Bot API (photo + caption)
+- WebSocket: {type, cameras[{camera_id, name, base64_jpg}], alert, audio} at 25fps
+- Dashboard: Next.js 14; historical alert table, statistics, export
+- Database: SQLite — alerts (UUID, message, timestamp, image) + faces (encoding, type)
+- Custom model path: Falls back gracefully from shoplifting.pt to heuristics if not present
+
+6. LOGIC AUDIT
+Detection logic — three-tier priority:
+  1. Custom model: if shoplifting.pt present -> classify frames, fire on "shoplift"/"suspicious"/"theft" label
+  2. Heuristics: wrist-to-torso distance, bending, loitering, zone intrusion (all simple Euclidean thresholds)
+  3. Face match: immediate alert on blacklisted face regardless of behavior
+
+Theft decision: rule-based (thresholds) with optional ML override. No temporal sequence logic. No suspicion
+score accumulation. Single-trigger model — one frame that trips the threshold generates an alert.
+
+Zone logic: Polygonal ROIs drawn by user at runtime. Person center point tested against polygon. No shelf/exit
+distinction — single generic "suspicious zone."
+
+False positive suppression: 3-second cooldown between alerts per camera. Insufficient for production.
+
+7. DATA AUDIT
+Uses COCO-pretrained YOLOv8n. No custom dataset included. shoplifting.pt is a black box — training data and
+methodology unknown. Face encodings stored per-user as pickled numpy arrays in SQLite.
+
+8. TRAINING AUDIT
+No training code in repo. shoplifting.pt was trained externally — details unavailable.
+
+9. INFERENCE AUDIT
+- Input: RTSP streams or webcam (OpenCV VideoCapture)
+- Output: annotated WebSocket frames + SQLite events + file snapshots
+- FPS: ~25fps WebSocket delivery; inference throttled to every 5th frame
+- Multi-camera: yes, concurrent threads
+- CPU viable: yes for detection; face_recognition requires more CPU
+- Edge deployment: partially viable — face recognition (dlib) problematic on embedded hardware
+
+10. PERFORMANCE / PRODUCTION
+Would work in controlled environments. 24/7 stability uncertain — no error recovery on RTSP dropout documented.
+Multi-camera scaling limited by threading model. The 3-second cooldown is too short for real retail.
+
+11. CODE QUALITY
+Monolithic backend.py is a weakness. No tests. No version pinning. No Docker. Next.js dashboard is separate
+and well-structured. SQLite is not production-grade for multi-camera high-throughput logging.
+
+12. REUSABLE INSIGHTS FOR EDGE_AI
+- Face recognition blacklist concept — valuable for known-offender flagging
+- Email + Telegram dual-channel alerting pattern
+- Next.js dashboard with historical export functionality
+- Graceful model fallback (primary model -> heuristics)
+
+13. FINAL VERDICT
+Practical: Yes (most complete external repo). Edge-friendly: Partially (face recognition problematic).
+Useful: Yes for dashboard/alerting patterns. Best parts: multi-channel alerts, face recognition, Next.js UI.
+Biggest weakness: monolithic code, black-box custom model, no temporal logic.
+
+---
+
+### REPO 2 AUDIT — OmRajpurkar/Alert-Generation (Transfer Learning)
+
+1. REPO OVERVIEW
+IEEE ICCCNT 2020 paper implementation. Solves multi-class suspicious activity classification (Shoplifting,
+Robbery, Break-In) using ResNet50 transfer learning. Research-grade with published methodology but low
+production value.
+
+2. PROJECT STRUCTURE
+  videoClassification/
+    train.py                    ResNet50 training (3-class)
+    predict_video.py            Batch video inference
+    predict_video_realtime.py   Webcam real-time inference
+    model                       Saved weights
+    label_bin                   Pickled LabelBinarizer
+
+3. CODE ARCHITECTURE
+Clean three-file separation: train / batch inference / real-time inference. No API. No UI. No database.
+
+4. MODEL AUDIT
+Model: ResNet50 (frozen) -> AveragePool2D(7x7) -> Flatten -> Dense(512, ReLU) -> Dropout(0.5) -> Dense(3, Softmax)
+Input: 224x224 BGR->RGB with ImageNet mean subtraction [123.68, 116.779, 103.939]
+Lightweight: Medium. Real-time: Yes (on GPU). Edge viable: Borderline (200MB+)
+
+5. FEATURE AUDIT
+- Temporal aggregation: Rolling deque of 128 frame predictions, averaged
+- Training pipeline: SGD optimizer, lr=1e-4, momentum=0.9; data augmentation (30 deg rotation, 0.15 zoom,
+  shifts, horizontal flip); stratified 80/20 split; ROC curves + confusion matrix
+- Alert threshold: max class prob - sum of others > 0.80 (interesting multi-class decision rule)
+- No tracking, no bounding boxes, no zones, no alerting integration
+
+6. LOGIC AUDIT
+Pure image classification applied frame-by-frame with rolling average smoothing. No spatial awareness.
+No temporal sequence modeling beyond the averaging trick. Theft decision = probability threshold comparison.
+Three-class decision: which class wins AND exceeds 0.80 margin.
+
+7. DATA AUDIT
+Private dataset (must download separately). Three subdirectories: Shoplifting/, Robbery/, Break-In/.
+Only class labels, no bounding boxes. Data quality unknown.
+
+8. TRAINING AUDIT
+Clean and functional training script. SGD with momentum. Standard augmentation. Proper train/val split.
+Outputs training curves.
+
+9. INFERENCE AUDIT
+- Frame-level: 224x224 resize + normalize -> predict -> deque
+- FPS: fast (ResNet50 inference ~30-50fps on GPU)
+- No multi-person support — single global frame classification
+
+10. PRODUCTION
+Not production-grade. No API, no alerting, no zones, no tracking. Research prototype only.
+
+12. REUSABLE
+- Multi-class (Shoplifting + Robbery + Break-In) approach worth borrowing conceptually
+- Rolling 128-frame probability averaging is a simple and effective smoothing technique
+
+13. VERDICT
+Not practical for EDGE_AI use case. Research reference only. The 3-class crime taxonomy is a useful
+conceptual idea.
+
+---
+
+### REPO 3 AUDIT — raoh97-code/theft-detection-system (POS Correlation)
+
+1. REPO OVERVIEW
+Hackathon project solving the retail drawer-theft problem via POS log correlation. Novel approach:
+cross-reference video events (person presence, cash drawer movement) against point-of-sale transaction logs.
+
+2. PROJECT STRUCTURE
+  ai-engine/
+    detect.py          YOLOv8 person tracking -> events.json
+    motion.py          Cash drawer motion detection
+    event_generator.py JSON event serialization
+  backend/
+    server.js          Node.js API
+    anomalyDetector.js POS correlation engine
+  frontend/
+    LiveFeed.js, Alerts.js, Timeline.js
+  pos-simulator/
+    generate_logs.js   Fake POS log generator
+  shared/
+    events.json, alerts.json  Data exchange (flat files)
+
+Languages: JavaScript 40.4% / CSS 30.6% / HTML 24.5% / Python 3.7% / PowerShell 0.8%
+
+3. CODE ARCHITECTURE
+Multi-layer: Python AI engine writes JSON -> Node.js backend reads + correlates -> React frontend displays.
+Communication via flat JSON files (not a proper message bus). Python is only 3.7% of codebase.
+
+4. MODEL AUDIT
+  YOLOv8n          | Person tracking (entry/exit detection) | Only tracks presence, not behavior
+  OpenCV motion    | Cash drawer movement                   | Simple frame differencing
+
+5. FEATURE AUDIT
+- Person entry/exit tracking via set operations on detection IDs
+- Cash drawer motion detection (OpenCV)
+- POS log correlation with 3-tier confidence scoring:
+    * Drawer open + no POS transaction within 2s -> 90% confidence
+    * Suspicious cash motion -> 85% confidence
+    * Drawer open + no person -> 95% confidence (tamper)
+- React dashboard with timeline view
+- alerts.json output (no database)
+
+6. LOGIC AUDIT
+The most domain-realistic theft logic in all 17 repos. Addresses the actual problem: an employee or thief
+opens a cash drawer without recording a sale. Cross-referencing video person presence with POS logs is how
+real loss prevention works. The 2-second timestamp matching window is sensible.
+
+Three explicit confidence levels represent risk scoring — more nuanced than binary classification.
+
+7-8. DATA / TRAINING
+No training. All rule-based. POS simulator generates fake logs for testing.
+
+9. INFERENCE
+FRAME_SKIP=5 for performance. Exports person entry/exit events to JSON. Node.js polls JSON every 2 seconds.
+Not real-time streaming — polling-based.
+
+10. PRODUCTION
+Not production-ready. Flat JSON files instead of database. POS integration is simulated. No authentication.
+Hackathon origin.
+
+12. REUSABLE
+- POS correlation concept is highly valuable — cross-referencing video events with transaction logs is a
+  critical missing feature in EDGE_AI
+- 3-tier confidence scoring model is worth borrowing
+- Counter-level tamper detection (drawer open with no person) is novel
+
+13. VERDICT
+Weak implementation, but strongest conceptual insight of all 17 repos for realistic retail theft.
+The POS correlation module should be a V2 priority for EDGE_AI.
+
+---
+
+### REPO 4 AUDIT — 1amitos1/Shoplifting-Detection (Gate_Flow_SlowFast)
+
+1. REPO OVERVIEW
+The most technically sophisticated ML system in all 17 repos. Implements a dual-stream 3D-CNN
+(Gate_Flow_SlowFast) trained on 4,000 real supermarket clips to detect bag and clothing concealment.
+Published F1: 85.77%.
+
+2. PROJECT STRUCTURE
+  CODE/
+    Shoplifting_net.py          Gate_Flow_SlowFast model (TF/Keras)
+    Live_demo_Shoplifting.py    Threaded real-time inference + alerts
+    data_pip_shoplifting.py     Data pipeline, optical flow, augmentation
+    Alert.py                    Email alert (hardcoded Gmail credentials — DO NOT COPY)
+    weight_steals/              Pre-trained Bag/Clothes concealment weights
+    weight_take_Somthing/       Pre-trained taking behavior weights
+  DB_Sample/                    Sample dataset clips
+
+3. CODE ARCHITECTURE
+Three-thread architecture for real-time: Receive (capture) / Display (buffer) / Prediction (inference).
+3000-frame queue buffer. Custom TF/Keras model. No API or web interface — standalone scripts only.
+
+4. MODEL AUDIT
+  Component        | Architecture                              | Purpose
+  Fast pathway     | Conv3D (1,3,3)+(3,1,1), 16 filters       | Fine-grained temporal dynamics (all 64 frames)
+  Slow pathway     | Conv3D, tau=16 temporal subsample         | Semantic spatial features (4 frames effectively)
+  Lateral connect  | Addition at stride=18                     | Cross-pathway fusion
+  Merge block      | Conv3D (64->128), pooling (2,2,2)         | Combined feature integration
+  Head             | Dense(128->32->3, Softmax)                | Bag / Clothes / Normal classification
+
+Input: [64, 224, 224, 5] — 64 frames, 224x224, RGB + 2-channel optical flow.
+This is the ONLY repo using optical flow.
+
+5. FEATURE AUDIT
+- Optical flow computation: between consecutive frames, integrated as 2 additional channels
+- 64-frame sliding window: ~2 seconds at 30fps, with 32-frame stride overlap
+- Multi-window aggregation: max confidence across all windows for long videos
+- Threaded real-time inference: separate capture, display, prediction threads
+- Email alert with video attachment: Gmail SMTP, base64-encoded video file
+- Three output classes: Bag, Clothes, Normal — more nuanced than binary
+
+6. LOGIC AUDIT
+Purely learned temporal pattern. No heuristics. The 3D-CNN learns to recognize concealment sequences
+from training data. Multi-window approach: run model on overlapping 64-frame windows, take max confidence.
+Alert fires when Bag or Clothes wins.
+
+The optical flow addition is the key insight: [RGB(3) + flow(2)] = 5 channels. Flow vectors encode where
+pixels moved, revealing hand trajectories during concealment even when RGB appearance is ambiguous.
+
+7. DATA AUDIT
+4,000 video clips from 2 real supermarkets. Actor-performed scenarios with realistic product/bag/clothing
+concealment. Multiple angles, actors, clothing variants. 87% F1 on training, 85.77% on evaluation.
+Dataset: contact info@silentvision.org.
+
+8. TRAINING AUDIT
+AWS SageMaker (EC2 p3.2xlarge, V100 GPU). TensorFlow + Keras. Adam optimizer.
+Batch shape: (-1, 64, 224, 224, 3) for RGB / 5-channel for full model.
+
+9. INFERENCE AUDIT
+- Input: 64-frame sliding window with 32-frame stride
+- Output: probability vector [Bag, Clothes, Normal]
+- Latency: 5-second window minimum before first prediction at 30fps
+- GPU required for real-time (V100 used in paper)
+- NOT viable for CPU-only edge deployment
+
+10. PRODUCTION
+Hardcoded Windows absolute paths (E:\FINAL_PROJECT_DATA\...). Hardcoded Gmail credentials.
+No API or web interface. ~5-second inference latency. GPU required.
+Moderate production readiness conceptually but very rough implementation.
+
+12. REUSABLE
+- Optical flow as additional input channels — highly valuable concept for EDGE_AI
+- 64-frame sliding window with overlap — good temporal window design pattern
+- 3-class (Bag/Clothes/Normal) concealment taxonomy — aligns with EDGE_AI's signal types
+- Multi-window max-confidence aggregation for variable-length video
+
+13. VERDICT
+Best ML architecture of all 17 repos. Not deployable as-is (Windows paths, hardcoded credentials,
+GPU-only, 5s latency). But the optical flow + 3D-CNN approach is the most advanced idea to borrow
+for a future EDGE_AI concealment model.
+
+---
+
+### REPO 5 AUDIT — alich03/Shoplifting-Detection-using-yolov8
+
+1. REPO OVERVIEW
+Minimal single-script shoplifting detector using a custom-trained YOLOv8 model for binary classification
+per frame.
+
+2-3. STRUCTURE / ARCHITECTURE
+One Python file (shoplifting_detection.py). No tracking, no temporal logic, no alerts, no API.
+Pure detection script.
+
+4. MODEL
+Custom YOLOv8 (shoplifting_wights.pt — note misspelling) trained for binary: shoplifting (class 1) vs.
+normal (class 0). Training data and methodology undocumented. Weights not in repo.
+
+5. FEATURES
+- Visual annotation: red rectangle + circle for shoplifting, thin rectangle for normal (if conf > 0.80)
+- AVI output (MJPEG codec, 25fps)
+- No tracking, no temporal context, no alerts
+
+6. LOGIC
+Single-frame binary classification. If class 1 confidence > threshold -> mark as shoplifting.
+No sequence, no zones, no scoring.
+
+10. PRODUCTION
+Not production-ready. Single frame, no temporal context guarantees high false positives.
+No integration points.
+
+12. REUSABLE
+The concept of training YOLOv8 directly on a "shoplifting" class (as a pose/action composite) is
+interesting — makes detection and classification a single pass. The 0.80 normal-class threshold idea
+is worth noting for false positive suppression.
+
+13. VERDICT
+Very weak implementation. The concept (custom action-detection via YOLO) has merit but this repo
+provides no training code or dataset. Minimal value to EDGE_AI.
+
+---
+
+### REPO 6 AUDIT — JocelynVelarde/Hack-Harvard-2024 (TheftWatch)
+
+1. REPO OVERVIEW
+Harvard Hackathon 2024. Most feature-ambitious conceptually: LLM analysis, heatmaps, WhatsApp alerts,
+facial recognition, behavior classification. Most features are incomplete or commented out.
+
+4. MODELS
+- YOLOv8 for detection
+- Custom ML model for 3-class behavior (dangerous/suspicious/safe)
+- face_recognition for timestamped identity
+- OpenAI GPT for conversational incident analysis
+
+5. FEATURES
+- WhatsApp alerts via Twilio API
+- LLM-based incident narrative generation (ask GPT to explain what happened)
+- Store layout heatmap visualization
+- Streamlit multi-page dashboard
+- MongoDB persistence
+- Roboflow for dataset management
+- 90+ fully pinned dependencies
+
+6. LOGIC
+Two-stage: YOLO detects -> custom model classifies behavior. Alert on "dangerous" class.
+LLM adds narrative context.
+
+10. PRODUCTION
+Not production-ready. Core app.py logic is commented out. Dual-framework (TensorFlow + PyTorch),
+extremely heavy dependency footprint (90+ packages). WhatsApp uses Twilio sandbox number.
+
+12. REUSABLE
+- LLM-generated narrative for alert context is a creative and useful idea for EDGE_AI's alert system
+- WhatsApp alerting as an alternative to webhook
+- Store heatmap visualization concept
+
+13. VERDICT
+Great concept, poor execution. The LLM narrative generation and WhatsApp alert ideas are worth borrowing.
+
+---
+
+### REPO 7 AUDIT — TeCSAR-UNCC/Shopformer (CVPR 2025)
+
+1. REPO OVERVIEW
+CVPR 2025 academic paper. Two-stage anomaly detection operating entirely on skeletal pose sequences
+(no RGB video). Privacy-preserving approach using GCAE (Graph Convolutional Autoencoder) + Transformer.
+
+2. STRUCTURE
+  models/         GCAE tokenizer + Transformer encoder-decoder
+  scripts/        main_to.py — training + evaluation
+  config/         Hyperparameter YAML configs
+  utils/          Metrics, pose preprocessing
+  data/           Dataset setup docs
+  environment.yml (Python 3.13.2, CUDA 11.8, torch==2.6.0+cu118)
+
+4. MODEL AUDIT
+  GCAE        | Graph Conv Autoencoder | 18-keypoint pose graph -> 144-dim latent (8ch x 18 kpts), 2 tokens/seq
+  Transformer | Encoder-Decoder        | 12 heads, 4 layers, dropout 0.1 — reconstructs tokenized pose sequences
+  Anomaly score | MSE reconstruction error | High error = anomalous (shoplifting)
+
+Training: only on NORMAL behavior. Inference: anomaly = high reconstruction error from normal distribution.
+No supervised labels needed for shoplifting.
+
+Dataset: PoseLift (custom) — 24-frame segments, 12-frame stride, 18 keypoints, binary labels.
+
+Hyperparameters: LR=5e-5, epochs=10, Adam, MSE loss.
+
+Performance: AUC-ROC 69.15%, AUC-PR 44.49%, EER 0.38. Modest — not production-grade accuracy.
+
+5. FEATURES
+- Unsupervised anomaly detection (no labeled shoplifting data needed)
+- Privacy-preserving (processes only skeleton JSON, not raw video)
+- Conda environment fully specified
+- Apache 2.0 license (open for commercial use)
+
+6. LOGIC
+Train on normal -> at inference, shoplifting = deviation from learned normality (MSE threshold).
+No thresholds on body part positions — learns what "normal movement" looks like holistically.
+
+12. REUSABLE
+- Privacy-preserving approach is valuable for multi-jurisdiction deployments
+- Unsupervised training eliminates need for labeled shoplifting footage
+- GCN for pose-graph modeling is a strong architectural idea for V2+ EDGE_AI
+- GCAE tokenizer concept could augment pose analysis in EDGE_AI
+
+13. VERDICT
+Academically strong (CVPR 2025), but 69% AUC-ROC is too weak for production primary detection.
+The unsupervised training approach removes the dataset labeling bottleneck.
+Best use: supplemental anomaly signal alongside EDGE_AI's FSM.
+
+---
+
+### REPO 8 AUDIT — rahulkundelwalll/Shoplifting-Detection (EfficientNetV2B0)
+
+1. REPO OVERVIEW
+Student data science project. Frame-level binary shoplifting classifier using EfficientNetV2B0 + HOG.
+
+4. MODELS
+- EfficientNetV2B0 (ImageNet pretrained, frozen)
+- HOG features on frames
+- Custom dense classifier head
+- Adam optimizer, L2 regularization (0.001)
+
+Dataset: DCSASS (multi-class activity recognition, shoplifting subset)
+Performance: F1 86.40%, Recall 89.64%, Accuracy 76.44%
+
+5. FEATURES
+- Frames extracted from videos, 224x224 resize
+- Augmentation: flip, rotation, zoom, shifts
+- Two notebooks: data preparation + training
+
+6. LOGIC
+Per-frame binary classification. No person detection. No tracking. No temporal context.
+
+12. REUSABLE
+High recall (89.64%) vs. modest accuracy (76.44%) suggests it catches most events but over-alerts.
+HOG+CNN hybrid is a lightweight alternative to heavy 3D-CNN approaches.
+Could work as a pre-filter for EDGE_AI.
+
+13. VERDICT
+Not practical standalone. Frame-level classification without tracking is not viable for production.
+F1 86.40% is respectable for a student project.
+
+---
+
+### REPO 9 AUDIT — alzilqad/shoplifting-detection (VGG16 Benchmark)
+
+1. REPO OVERVIEW
+Benchmarks 5 CNN backbones (VGG16/19, ResNet50, DenseNet121, InceptionV3) for frame-level
+shoplifting classification. Has live camera inference capability.
+
+4. MODELS
+VGG16 selected as best performer. Dataset: 2,553 images. 30th-frame sampling from videos.
+Class imbalance: 890 vs 1663 images — not addressed.
+
+5. FEATURES
+- Live webcam inference with rolling 128-prediction deque smoothing (threshold 0.5 on mean)
+- 30th-frame subsampling from source videos
+- Multiple optimizer comparison (SGD, Adam, RMSprop)
+- Multiple evaluation notebooks (test set + live video)
+- Temporal smoothing: deque of 128 predictions, mean threshold
+
+6. LOGIC
+Frame-level binary. Rolling 128-frame deque average for temporal smoothing.
+Threshold 0.5 on mean prediction.
+
+12. REUSABLE
+The 128-frame rolling average smoothing technique is a simple, effective approach for softening noisy
+frame-level classifiers. The 5-backbone benchmark methodology is a good model selection practice.
+
+13. VERDICT
+Weak for production (no tracking, whole-frame classification).
+The rolling average smoothing is the main borrowable idea.
+
+---
+
+### REPO 10 AUDIT — danishkhan24/Shoplifting-Detection (YOLO + GluonCV)
+
+1. REPO OVERVIEW
+Batch inference system combining custom YOLO (shoplifting-trained) with GluonCV action recognition.
+Pre-trained weights provided.
+
+4. MODELS
+- Custom YOLO (best_shoplifting.pt) — trained for shoplifting detection
+- GluonCV + MXNet (I3D or SlowFast variant) — action recognition
+- Decord for GPU-accelerated video decoding
+
+5. FEATURES
+- video_process.py: batch inference over directory of videos -> annotated output videos
+- anomaly_detection.ipynb: GluonCV training/exploration
+- Pre-trained YOLO weights included (zip file)
+
+12. REUSABLE
+Decord for GPU-accelerated video decoding is worth noting for high-throughput edge systems.
+Pre-trained custom YOLO weights concept is relevant.
+
+13. VERDICT
+Underdocumented. No metrics. Batch-only. Limited value.
+
+---
+
+### REPO 11 AUDIT — donatmat/shoplift-detector (LRCN Package)
+
+1. REPO OVERVIEW
+The only properly packaged (pip-installable) shoplifting detector in all 17 repos. Uses LRCN (CNN+LSTM)
+on motion-difference frames. French documentation.
+
+2. STRUCTURE
+  shoplift_detector/
+    models/lrcn_160S_90_90Q.h5   Pre-trained LRCN model (Keras)
+    detection.py                 Core detection + preprocessing
+    camera_stream.py             Live camera inference
+    video_processor.py           Video file inference
+    main.py                      Entry point (2 modes)
+  examples/, tests/
+  setup.py                       pip installable
+  requirements.txt: numpy, opencv-python, tensorflow>=2.0.0
+
+4. MODEL AUDIT
+  Architecture      | LRCN: CNN spatial feature extraction + LSTM temporal modeling
+  Input size        | 90x90 pixels (very small — edge-optimized)
+  Sequence length   | 160 frames (~5-6s at 30fps)
+  Preprocessing     | cv2.absdiff() frame differencing -> Gaussian blur -> grayscale -> normalize [0,1]
+  Output            | Probability + label (shoplifting / normal)
+
+5. FEATURES
+- Frame differencing preprocessing isolates motion — removes static background
+- 160-frame buffer accumulation before any prediction
+- Live camera mode: detect_from_camera()
+- Video file mode: detect_from_video()
+- pip installable, proper setup.py
+- Clean modular architecture (camera_stream.py, detection.py, video_processor.py)
+- Pre-trained model included in repo
+
+6. LOGIC
+LRCN processes motion sequences: frame_diff -> buffer 160 frames -> model.predict(buffer) -> probability.
+Decision: np.argmax(probabilities). Motion preprocessing is key — the model learns motion patterns,
+not appearances.
+
+12. REUSABLE
+- Frame differencing + LRCN is highly relevant for edge deployment (90x90 input is tiny)
+- Motion preprocessing removes background and reduces inference load
+- Pip package structure is the right deployment approach for EDGE_AI
+- The 160-frame buffer pattern (accumulate temporal context before predicting) is directly applicable
+
+13. VERDICT
+Best packaging and most deployment-practical ML architecture in this set.
+The LRCN + motion differencing approach is specifically designed for edge viability.
+The 90x90 resolution and 160-frame wait time are legitimate trade-offs.
+HIGH VALUE to EDGE_AI.
+
+---
+
+### REPO 12 AUDIT — UmerElsaharty/shoplifting-detection-using-yolo-nas-and-SAM
+
+1. REPO OVERVIEW
+Experimental research combining YOLO-NAS, SAM (Segment Anything), and HuggingFace video classifier.
+Two parallel experimental approaches.
+
+4. MODELS
+- YOLO-NAS (Deci AI): SOTA speed/accuracy trade-off for detection
+- SAM (Meta): segments detected persons — isolates person body from background
+- YOLOv5: pre-filter frames for person presence
+- HuggingFace VideoMAE or similar: temporal video classification
+
+Two approaches:
+Approach 1 — YOLO-NAS + SAM:
+  YOLOv5 filters raw frames (person present) -> YOLO-NAS detects/classifies -> SAM segments person
+  -> focused analysis on body only (no background)
+Approach 2 — HuggingFace Video Classifier:
+  Extract one frame per 16 frames -> feed to fine-tuned HF video classification model
+
+5. FEATURES
+- Person segmentation via SAM after YOLO-NAS detection
+- Two-approach comparison: detection vs. video classification
+- Class imbalance addressed by oversampling (duplication — avoid in production: use weighted loss instead)
+
+6. LOGIC
+YOLO-NAS+SAM: detect person -> segment -> classify as shoplifting/non-shoplifting per person.
+SAM creates clean person mask, theoretically helping classifier focus on body gestures vs background.
+
+12. REUSABLE
+- YOLO-NAS is a stronger detector than YOLOv8n for the same compute budget (worth benchmarking)
+- SAM for person masking before classification is an interesting preprocessing idea
+- HuggingFace VideoMAE fine-tuning is the easiest path to a temporal video classifier
+
+13. VERDICT
+Research-only. No metrics. No deployment path.
+YOLO-NAS upgrade idea and SAM masking concept are noteworthy.
+
+---
+
+### REPO 13 AUDIT — sg-sparsh-goyal/Suspicious-Activity-Detection
+
+1. REPO OVERVIEW
+Two-stage detection pipeline: YOLOv8-pose extracts skeleton keypoints per person -> XGBoost classifies
+pose configuration as suspicious or normal. Clean, fast, privacy-preserving.
+
+2. STRUCTURE
+  detection.py          Main inference script
+  best.pt               Custom YOLOv8-pose weights (fine-tuned)
+  model_weights.json    XGBoost model (serialized)
+
+4. MODELS
+  YOLOv8-pose (best.pt) | Multi-person skeleton extraction, conf >= 0.75 | Custom fine-tuned
+  XGBoost               | Binary classification on flattened keypoint vectors | Lightweight, interpretable
+
+5. FEATURES
+- Per-frame multi-person pose extraction
+- Flat keypoint dict {x0, y0, x1, y1, ..., xN, yN} -> pandas DataFrame -> XGBoost DMatrix
+- Hard threshold 0.5 on probability
+- Red/green bounding box annotation with confidence
+- Email alert via Python MIME library
+- Output video with timestamps
+
+6. LOGIC
+YOLOv8-pose extracts normalized (x, y) keypoint coordinates per person.
+XGBoost predicts from flattened vector. No temporal context — each frame classified independently.
+The XGBoost model learns what body configurations look like during shoplifting (crouching, arm angles
+toward shelves, etc.).
+
+12. REUSABLE
+- Pose + lightweight classifier pipeline is highly relevant for EDGE_AI's concealment detection
+- XGBoost on keypoints is interpretable and very fast
+- Complements EDGE_AI's existing pose module — could add a per-frame suspicion classifier alongside FSM
+- Per-frame per-person suspicion score could feed into EDGE_AI's risk accumulator
+
+13. VERDICT
+Practical and lightweight. The XGBoost+pose approach is the most deployable ML-based concealment
+detector in these repos (when used as supplement to temporal reasoning).
+HIGH VALUE to EDGE_AI for quick upgrade.
+
+---
+
+### REPO 14 AUDIT — Duaa-Swalmeh/Cellula_CV_WEEK7
+
+1. REPO OVERVIEW
+Week-long assignment exploring two architectures: EfficientNetB0+LSTM for temporal shoplifting
+classification, and VideoMAE for comparison.
+
+2. STRUCTURE
+  Shop_Dataset_2.ipynb                  VideoMAE-based approach
+  theft_classification_pretrained.ipynb EfficientNetB0+LSTM approach
+
+4. MODELS
+Notebook 1 (primary): EfficientNetB0 (frozen, ImageNet) -> 1280-dim feature -> LSTM(128) -> Binary sigmoid
+Notebook 2 (experimental): VideoMAE (MCG-NJU/videomae-base-finetuned-kinetics) fine-tuned for 2-class
+
+Dataset: Shop Dataset (Kaggle) — 531 non-shoplifting + 324 shoplifting videos (~855 total)
+Split: 70% train / 15% val / 15% test (stratified)
+Input: 16 frames per clip, 224x224
+
+Training config (Notebook 1):
+  Loss: Binary Cross-Entropy (BCELoss)
+  Optimizer: Adam, lr=1e-4
+  Scheduler: ReduceLROnPlateau (factor=0.1, patience=3)
+  Early stopping: 5 epochs
+  Max epochs: 15, batch size: 8
+
+Performance: Training F1=0.9867, Validation F1=1.0, Test F1=0.9412, Test accuracy=100%
+NOTE: 100% accuracy is suspicious — likely overfitting or data leakage on 855-clip dataset.
+
+5. FEATURES
+- Proper VideoDataset class with stratified splitting
+- EfficientNet spatial features + LSTM temporal reasoning over 16-frame clips
+- torchmetrics for proper F1/precision/recall
+- Two architectures compared in same repo
+
+12. REUSABLE
+- EfficientNet+LSTM is a practical architecture for short-clip classification
+- VideoDataset design with 16-frame clips is the right granularity
+- VideoMAE fine-tuning concept is the most modern approach for temporal understanding
+
+13. VERDICT
+Student-grade but architecturally sound. 100% test accuracy suspicious (overfitting).
+Not deployable as-is.
+
+---
+
+### REPO 15 AUDIT — kaledhoshme123/Early-Detection-of-Collective-or-Individual-Theft (LRCN)
+
+1. REPO OVERVIEW
+Research paper (PDF included, 921KB) presenting LRCN-based 3-class confidence scoring for collective
+and individual theft detection. 22 stars — highest of the last batch. No source code published.
+
+4. MODEL
+LRCN: CNN spatial features + LSTM temporal modeling. 160-frame window (~3 seconds).
+3-class output with confidence percentages:
+  1. Natural movement (normal retail behavior)
+  2. Suspicious movement (pre-theft behavioral patterns)
+  3. Confusion movement (ambiguous intermediate cases)
+
+Deployed Kaggle model: https://www.kaggle.com/models/kaledhoshme/early-detection-of-theft-attempts
+Source code withheld — author shares upon interest.
+
+KEY INNOVATIONS
+- Collective theft detection (multiple coordinated individuals) — unique in all 17 repos
+- 3-class with confidence percentage output — more nuanced than binary
+- 160-frame temporal window for meaningful context
+- Deployed claim: integration with surveillance camera systems
+
+12. REUSABLE
+- Collective theft detection concept is a V3 feature for EDGE_AI
+- 3-class taxonomy (natural/suspicious/confusion) maps well to EDGE_AI's risk bands (GREEN/YELLOW/RED)
+- Confidence percentages per class are more useful than binary alert flags
+
+13. VERDICT
+Most academically interesting in this batch. No code, but the 3-class temporal approach with confidence
+scoring is conceptually the most production-realistic for a real loss-prevention system.
+
+---
+
+### REPO 16 AUDIT — AaravDoesRobotics/crimedetection
+
+1. REPO OVERVIEW
+React Native mobile app with Firebase. Camera recording UI ONLY. Zero ML functionality implemented.
+
+2. WHAT IT DOES
+- React Native 0.76.5 scaffold
+- Requests iOS camera permission
+- Renders RNCamera (back camera, with audio) full-screen
+- "Start Recording" and "Stop Recording" buttons
+- Labels camera view "Shoplifting Detection" — but detection logic is NEVER implemented
+- Firebase Firestore dependency (intent: upload footage/events to cloud) — not connected
+
+Languages: TypeScript 30.8%, JavaScript 25.1%, Objective-C 22.8%, Ruby 9.5%, C++ 3.4%
+Commits: 5 commits across 2 days (Jan 5-6, 2025), then abandoned.
+
+13. VERDICT
+Not relevant. Abandoned scaffold. Only Firebase architecture concept is noteworthy.
+
+---
+
+### REPO 17 AUDIT — Premaramkarthik/pipeline_opencv
+
+1. REPO OVERVIEW
+Repository URL (pipeline_opencv) returns 404. Related cicd-pipeline repo by same author is an OOP
+teaching demo using YOLOv8n for single-image person detection. Not a shoplifting system.
+
+2. WHAT IT DOES
+- Python OOP patterns (abstract base classes, versioning: V1-V4)
+- Generic object detection pipeline using yolov8n.pt (COCO pretrained)
+- CLI: python main_version2.py --image_path="sample.jpg" --model_path="yolov8n.pt"
+- Detects class 0 (person), draws red rectangle around FIRST detection only
+- No video, no temporal analysis, no shoplifting logic
+
+13. VERDICT
+Not relevant. Educational OOP demo.
+
+---
+
+## 4. CROSS-REPO FEATURE MATRIX
+
+| Category                  | Best Repo             | 2nd Best          | Weakest         | Most Innovative       | EDGE_AI Status                       |
+|---------------------------|-----------------------|-------------------|-----------------|-----------------------|--------------------------------------|
+| Detection model           | R1 (YOLOv8n full)     | R12 (YOLO-NAS)    | R17 (1 image)   | R12 (YOLO-NAS+SAM)    | YOLOv8n — solid, needs alternatives  |
+| Tracking                  | EDGE_AI               | R1 (multi-cam)    | R5 (none)       | EDGE_AI               | ByteTrack + IOU fallback             |
+| Pose/hand models          | EDGE_AI               | R13 (pose+XGB)    | R2 (none)       | R7 (GCAE on skeleton) | YOLOv8n-pose, wrist/hip logic        |
+| Action recognition        | R4 (3D-CNN+flow)      | R11 (LRCN)        | R5 (none)       | R4 (SlowFast+flow)    | NONE — critical gap                  |
+| Shoplifting decision      | EDGE_AI               | R15 (3-class LRCN)| R16 (none)      | EDGE_AI (FSM+signals) | Temporal FSM + weighted signals      |
+| Suspicion scoring         | EDGE_AI               | R15 (confidence%) | R5 (none)       | EDGE_AI               | Continuous score with time decay     |
+| Zone logic                | EDGE_AI               | R1 (ROI polygons) | R2,R5 (none)    | EDGE_AI (5-zone)      | 5 named zones with polygon config    |
+| Counter/POS logic         | R3 (POS correlation)  | EDGE_AI (stub)    | All others      | R3                    | Stub only — not connected            |
+| Exit logic                | EDGE_AI               | R15               | Most (none)     | EDGE_AI               | Exit zone cross-check                |
+| Multi-camera support      | EDGE_AI               | R1 (threads)      | Most (none)     | EDGE_AI (adjacency)   | Full multi-camera with adjacency     |
+| ReID support              | EDGE_AI               | R1 (face recog)   | Most (none)     | EDGE_AI (cosine emb)  | GlobalIdentityResolver               |
+| Training support          | R4 (3D-CNN, real data)| R2 (ResNet50)     | R16,R17         | R7 (unsupervised)     | NONE — critical gap                  |
+| Inference pipeline        | EDGE_AI               | R11 (packaged)    | R16,R17         | EDGE_AI (streaming)   | Full RTSP + file replay              |
+| Real-time capability      | EDGE_AI               | R1                | R4 (5s lag)     | EDGE_AI               | Real-time at 12fps                   |
+| Low-cost edge             | EDGE_AI               | R11               | R4,R7           | R11 (90x90 LRCN)      | YOLOv8n + CPU viable                 |
+| Production readiness      | EDGE_AI               | R1                | R16             | EDGE_AI               | MVP-level production                 |
+| Code quality              | EDGE_AI               | R11 (packaged)    | R4 (hardcoded)  | EDGE_AI (modular)     | Good, some rough edges               |
+| Best reusable features    | R4 (optical flow)     | R3 (POS)          | R16,R17         | R13 (pose+XGBoost)    | —                                    |
+| Most advanced ML          | R7 (GCAE+Transformer) | R4 (3D-CNN)       | R5,R17          | R7                    | —                                    |
+| Most realistic (gas stn)  | R3 (POS correlation)  | EDGE_AI           | R7 (skeleton)   | R3                    | —                                    |
+
+---
+
+## 5. DETAILED EDGE_AI (EDGEGUARD) AUDIT
+
+### 5.1 Full Project Structure
+
+  edgeguard/
+  |-- apps/
+  |   |-- api/
+  |   |   |-- main.py              FastAPI app factory
+  |   |   |-- routes.py            Core endpoints (health, WebRTC, events, frames)
+  |   |   |-- routes_config.py     Camera/zone config endpoints
+  |   |   |-- routes_reconcile.py  POS reconciliation endpoints
+  |   |   |-- routes_retail.py     Retail-specific endpoints
+  |   |   `-- schemas.py           Pydantic response models
+  |   `-- ui/
+  |       |-- app.py               Main Streamlit dashboard
+  |       `-- dashboard_retail.py  Retail-specific dashboard
+  |-- config/
+  |   |-- zones.sample.json        Zone polygon definitions (5 zones)
+  |   `-- cameras.sample.json      Multi-camera config with adjacency graph
+  |-- docs/
+  |   |-- logic.md                 Brief theft logic overview
+  |   |-- logic_spec.md            17KB detailed state machine specification
+  |   |-- zones.md                 Zone config guide
+  |   |-- mvp_plan.md              MVP development roadmap
+  |   |-- mvp_to_v2_plan.md        V2 upgrade plan
+  |   |-- module_plan.md           Module architecture plan
+  |   |-- robust_logic.md          Robustness notes
+  |   `-- situations.md            Scenario analysis
+  |-- scripts/
+  |   `-- run_video.py             Video debug/test script
+  `-- src/
+      |-- alerts/webhook.py        Event webhook delivery
+      |-- core/
+      |   |-- config.py            Pydantic settings (all params with validation)
+      |   |-- logger.py            Logging setup
+      |   |-- cameras.py           Camera model definitions
+      |   |-- store_config.py      Multi-camera JSON loader
+      |   `-- thresholds.py        Legacy threshold holders
+      |-- evidence/
+      |   |-- clip_writer.py       MP4 evidence clip generation
+      |   `-- retention.py         Clip retention policy
+      |-- fusion/
+      |   |-- global_identity.py   Cross-camera ReID with cosine similarity
+      |   `-- store_fusion.py      Multi-camera state aggregation
+      |-- pipeline/
+      |   |-- manager.py           Multi-camera PipelineManager (singleton)
+      |   |-- runner.py            Main processing loop (PipelineRunner)
+      |   |-- camera_worker.py     Per-camera worker thread
+      |   `-- per_camera_processor.py  Per-camera processing
+      |-- pos/connector.py         POS integration STUB (not implemented)
+      |-- rules/
+      |   |-- theft_fsm.py         Temporal risk FSM (main logic engine)
+      |   |-- theft_state_machine.py  Per-customer basket state tracking
+      |   |-- risk.py              RiskEngine with decay + bands
+      |   |-- association.py       Hand-item association + concealment classification
+      |   |-- reconciliation.py    POS reconciliation logic
+      |   `-- zones.py             Zone polygon utilities
+      |-- session/manager.py       Session/checkout session management
+      |-- store/
+      |   |-- db.py                SQLAlchemy + SQLite + corruption recovery
+      |   |-- models.py            ORM models (events, signals, timeline, customers, items, clips)
+      |   |-- crud.py              Database CRUD operations
+      |   `-- db_writer.py         Background DB write worker (async queue)
+      |-- video/
+      |   |-- frames.py            FrameSampler with rate control
+      |   `-- sources.py           RTSPSource + VideoFileSource (with reconnect)
+      `-- vision/
+          |-- detector.py          YOLODetector (detect_all -> persons + items split)
+          |-- person_detector.py   Person-specific detection wrapper
+          |-- person_tracker.py    PersonTracker (ByteTrack or IOU fallback)
+          |-- pose.py              PoseEstimator (batch crop inference)
+          |-- tracker.py           PersonTracker with TrackMemory
+          |-- item_detector.py     Item detection
+          |-- item_tracker.py      Item tracking with state machine
+          |-- reid.py              ReIDEmbedder
+          `-- annotator.py         Frame visualization
+
+### 5.2 Input Pipeline
+
+VideoFileSource (src/video/sources.py:13):
+- Loops video file via OpenCV VideoCapture
+- Uses CAP_PROP_POS_MSEC for precise timestamp reconstruction — preserves video PTS so temporal drift
+  does not accumulate
+- Restarts from beginning on loop (configurable with loop=False)
+
+RTSPSource (src/video/sources.py:42):
+- Primary: cv2.CAP_FFMPEG with rtsp_transport;tcp, stimeout, fflags;nobuffer, flags;low_delay
+- Fallback: generic cv2.VideoCapture(url) if CAP_FFMPEG fails
+- Exponential backoff on reconnect (base 1s -> max 30s)
+- Read failure tolerance: 3 consecutive failures before reconnect
+- Stop event threading for clean shutdown
+
+FrameSampler (src/video/frames.py):
+- Rate controls frames to frame_fps (default 12fps)
+- Drops frames when lagging (configurable)
+
+### 5.3 Detector/Tracker Logic
+
+YOLODetector (src/vision/detector.py):
+- Single YOLO model call -> splits into persons (class 0) + items (RETAIL_COCO_CLASSES: 40 retail-relevant classes)
+- Device autodetect: CUDA -> MPS -> CPU
+- Two modes: detect_all() (persons + items) and track_persons() (ByteTrack, class 0 only)
+- Cost: zero extra inference for item detection (same model call)
+
+PersonTracker (src/vision/tracker.py):
+- Primary: detector.track_persons() -> ByteTrack via ultralytics
+- Fallback: _IOUFallbackTracker — IOU matching with 2-second track age
+- TrackMemory: centroid history deque (maxlen=60), velocity calculation
+- Velocity: Euclidean centroid displacement / dt (pixels/second)
+- Automatic ByteTrack disable on exception
+
+PoseEstimator (src/vision/pose.py):
+- Batch inference: crops all tracked persons -> batch predict (single model call)
+- COCO keypoints: indices 9/10 (wrists), 11/12 (hips)
+- Derives: left_wrist, right_wrist, hip_center, hand_to_hip distance, hand_speed
+- Confidence threshold: 0.20 (low, intentional — captures partial poses)
+- Tracks hand position history per track_id for speed calculation
+
+### 5.4 TheftRiskFSM — The Core Logic Engine (src/rules/theft_fsm.py)
+
+States:
+  BROWSING -> NEAR_SHELF -> SHELF_INTERACTION -> PICK_SUSPECTED
+           -> POSSIBLE_CONCEALMENT -> CONFIRMED_CONCEALMENT
+           -> HIGH_RISK_EXIT -> CLEARED
+
+Signal weights:
+  SHELF_INTERACTION:           2.0
+  VISUAL_PICK_CONFIRMED:       4.0   (item disappeared near wrist)
+  HAND_TO_POCKET:              4.0
+  HAND_TO_BAG:                 3.0
+  HAND_TO_PANTS:               4.5   (highest — trouser pocket is most intentional)
+  HAND_TO_SHIRT:               3.5
+  HAND_TO_HOODIE:              4.0
+  EXIT_AFTER_CONCEALMENT:      6.0   (final commitment signal)
+  REPEATED_SHELF_INTERACTION:  2.0
+  NONSCAN_BAGGING:             5.0
+  SPEED_SPIKE:                 1.5
+
+Risk decay: 1.8 pts/second (time-based, not frame-count — stable across variable FPS inputs)
+
+Pick detection (dual path):
+  1. Visual: item track disappeared within 120px of wrist -> VISUAL_PICK_CONFIRMED (+4.0)
+  2. Pose heuristic: wrist sustained inside shelf polygon for >=4 frames -> SHELF_INTERACTION (+2.0)
+
+Concealment detection (multi-signal):
+  1. Hand-to-hip distance <= 110px within conceal_window_sec after pick
+  2. Wrist in bagging zone polygon (independent check)
+  3. Classification via detect_conceal_type_from_pose():
+     - BAG: wrist in bagging zone polygon
+     - PANTS: wrist_y > hip_y + 15
+     - HOODIE: wrist_y < shoulder_y - 20
+     - SHIRT: wrist_y < mid_y
+     - POCKET: default (hip level)
+
+Exit detection: centroid crossed into exit_zone polygon (was outside before) + last_conceal_ts not None
+  -> EXIT_AFTER_CONCEALMENT (+6.0)
+
+Speed spike: velocity > 140 px/s while in exit zone -> SPEED_SPIKE (+1.5)
+
+Event firing: risk_score >= risk_threshold (default 8.0) AND cooldown_ok (20s between events)
+
+### 5.5 Per-Customer Basket State (src/rules/theft_state_machine.py)
+
+Tracks per-customer item sets: items_in_hand, items_concealed, items_on_counter, items_returned
+
+Signal-driven transitions and risk deltas:
+  PICK                -> items_in_hand.add(item_id)              +1.0
+  PUT_BACK            -> remove from all sets + returned          -5.0
+  CONCEAL_*           -> in_hand -> concealed                    +15.0
+  ON_COUNTER          -> in_hand -> on_counter                   -0.5
+  RAPID_MULTI_PICK    ->                                          +2.0
+  LOST_UNCERTAIN      ->                                          +3.0
+  COUNTER_MISMATCH    ->                                         +20.0
+  COUNTER_RECONCILED  ->                                         -10.0
+  EXIT (with concealed) ->                                       +30.0
+  EXIT (clean)        ->                                          0.0
+
+### 5.6 RiskEngine (src/rules/risk.py)
+
+Separate from FSM — operates on customer-level global IDs.
+Decay: 2.0 pts per 30 seconds (slower decay for customer-level risk).
+Clamps to [0, 100].
+Risk bands: GREEN (<25), YELLOW (25-50), RED (>=50).
+History: list of (ts, delta, reason) tuples for audit trail.
+
+### 5.7 GlobalIdentityResolver (src/fusion/global_identity.py)
+
+Composite matching score:
+  0.55 * cosine_similarity(embedding)
++ 0.20 * time_score(last_seen, window=12s)
++ 0.15 * camera_adjacency_score(from_cam, to_cam)
++ 0.10 * height_similarity(height_px)
+
+Match threshold: 0.72 (cosine).
+Adjacency graph from cameras.sample.json (6-camera layout: entry, 4 shelf aisles, counter).
+Thread-safe: uses threading.Lock() for all state mutations.
+
+### 5.8 API Endpoints
+
+Core routes (apps/api/routes.py):
+  GET  /health                        Status + camera list
+  POST /webrtc/offer                  WebRTC SDP signaling for live video
+  GET  /events                        Event listing with filters
+  GET  /events/{event_id}             Single event details
+  GET  /tracks/{track_id}/timeline    Risk timeline + signals
+  GET  /latest_frame                  Latest JPEG frame (MJPEG fallback)
+  GET  /live/events/stream            SSE streaming
+
+Retail routes (apps/api/routes_retail.py):
+  GET  /retail/customers              List all customers
+  GET  /retail/customers/stream       SSE stream of customers
+  GET  /retail/customers/{id}         Customer details (basket, risk, clips)
+  GET  /retail/items                  Item listing
+  GET  /retail/events                 Event listing
+  GET  /retail/clips                  Clip listing
+  GET  /retail/customers/{id}/clips   Evidence clips per customer
+
+Config routes (apps/api/routes_config.py):
+  POST /config/cameras                Load/reload multi-camera config
+  GET  /config/cameras                Get current camera config
+  POST /config/cameras/{cam_id}/zones Update zone polygons (live reload)
+
+### 5.9 Database Schema (SQLAlchemy + SQLite)
+
+Tables:
+  events         UUID, camera_id, track_id, event_type, ts_start, ts_trigger, risk_score, snapshot_path
+  signals        signal_type, track_id, ts, value, details (JSON)
+  track_timeline risk_score, state, centroid_x/y, velocity per frame
+  customers      global_customer_id, risk_score_current, basket_state (JSON)
+  items          global_item_id, current_status, owner_customer_id
+  clips          clip_id, event_id, status (TEMP/FINAL), processing_status
+
+Background writer (src/store/db_writer.py):
+- Queue-based async writes to avoid blocking the inference loop
+
+SQLite corruption recovery:
+- is_sqlite_corruption_error() + recover_sqlite_database() — handles SQLITE_CORRUPT by copying backup
+
+### 5.10 Settings System (src/core/config.py)
+
+All parameters via Pydantic BaseSettings from .env file.
+@lru_cache(maxsize=1) for singleton pattern.
+Path pre-computation in model_post_init (avoids filesystem hits in inference hot loop).
+Field validation with ge/le bounds on all numeric thresholds.
+
+Key parameters:
+  mode:                    general_shopfloor | self_checkout
+  video_source_type:       file | rtsp
+  frame_fps:               12 (default)
+  risk_threshold:          8.0
+  n_frames_hand_in_shelf:  4
+  conceal_window_sec:      4
+  event_cooldown_seconds:  20
+  hand_to_hip_distance_px: 110.0
+  wrist_zone_conf_thres:   0.20
+  theft_clip_seconds_before: 2
+  theft_clip_seconds_after:  3
+  cross_camera_reid_enabled: false (default; true in active .env)
+
+### 5.11 Evidence Generation
+
+ClipWriter (src/evidence/clip_writer.py):
+- Frame buffer maintained in runner
+- On event: write theft_clip_seconds_before (2s) from buffer + theft_clip_seconds_after (3s) going forward
+- MJPEG codec, saved to ./data/clips/
+- Status: TEMP -> FINAL after post-event frames captured
+
+RetentionPolicy (src/evidence/retention.py):
+- Configurable clip retention, auto-deletion of old clips
+
+### 5.12 STRENGTHS OF EDGE_AI
+
+1.  Architecture is genuinely production-grade for an MVP: temporal FSM, zone logic, multi-camera,
+    ReID, evidence clips, API, UI, database
+2.  Temporal decay is TIME-BASED (not frame-count-based) — correct and stable across variable FPS
+3.  Dual-path pick detection: visual (item disappearance) + pose heuristic fallback — reduces missed detections
+4.  Concealment type classification from COCO skeleton geometry (5 types: PANTS/SHIRT/HOODIE/POCKET/BAG)
+    with different signal weights
+5.  ByteTrack + IOU fallback — graceful degradation when ByteTrack fails
+6.  Batch pose inference across all tracked persons — efficient (single model call per frame)
+7.  Single YOLO call -> persons + items — zero extra inference cost for item detection
+8.  RTSPSource with exponential backoff — production-grade reconnect logic
+9.  PTS-based timestamps from video files — avoids timestamp drift in file replay
+10. Thread-safe GlobalIdentityResolver with composite matching score (4-factor formula)
+11. Background DB writer — non-blocking inference loop
+12. SQLite corruption recovery — production stability consideration
+13. Per-customer basket state tracking — item-level accounting (not just person-level)
+14. Pydantic settings with validation — all thresholds configurable and validated
+15. Evidence clip generation with pre/post event frames
+
+### 5.13 WEAKNESSES OF EDGE_AI
+
+1.  No training pipeline — zero support for training or fine-tuning models; model selection locked to YOLOv8n
+2.  No benchmark/evaluation tooling — cannot compare models objectively on same test footage
+3.  No model plugin system — swapping detector or pose model requires code changes
+4.  No action/activity classifier — relies entirely on pose heuristics; no temporal video classifier
+    (3D-CNN, LRCN, VideoMAE)
+5.  Optical flow not used — the strongest concealment signal from academic research is missing
+6.  No temporal classifier for shoplifting sequences — the FSM is expert-designed, not learned from data
+7.  POS integration is a stub — src/pos/connector.py exists but not implemented
+8.  Reconciliation logic is incomplete — routes_reconcile.py and reconciliation.py exist but POS data
+    flow is absent
+9.  ReID embedding quality unknown — src/vision/reid.py uses undocumented backbone (no OSNet/ResNet specs)
+10. No hand/finger detection — wrist proxy is coarse; 120px pick radius may be too broad
+11. Single mode threshold — risk_threshold=8.0 is a single global number; no adaptive or per-camera thresholds
+12. No false positive rate measurement — no ground-truth evaluation pipeline exists
+13. Item detection relies on COCO classes — custom retail items cannot be detected without custom training
+14. No collective theft logic — only tracks individual persons; no cross-person coordination detection
+15. No anomaly detection — all logic is explicit signals; no learned deviation from normal baseline
+16. WebRTC implementation uncertainty — endpoint exists but real-world reliability not documented
+17. UI is Streamlit — limited for production operational dashboards; no role-based access
+18. Alert system is webhook-only — no email, SMS, WhatsApp, Telegram, Slack integration
+19. No data labeling pipeline — no tooling to label events as true/false positives
+20. No self-calibration — zone polygons must be manually configured; no automatic geometry estimation
+
+### 5.14 MISSING COMPONENTS
+
+- Training pipeline (fine-tuning YOLO/pose on custom retail classes)
+- Model evaluation harness (FPS, mAP, F1 on labeled footage)
+- A/B model comparison mode (replay same footage through two configurations)
+- Temporal video classifier (LRCN, 3D-CNN, or VideoMAE)
+- Optical flow computation
+- Hand/finger detection model
+- Collective theft detection (multi-person coordination)
+- Anomaly detection (unsupervised baseline)
+- POS integration (real transaction data)
+- Custom retail item classes
+- Email/SMS/WhatsApp alert channels
+- Role-based access control on API
+- Operational dashboard with real-time metrics
+- Data labeling and annotation tooling
+- Camera calibration / auto zone setup
+
+### 5.15 TECHNICAL DEBT
+
+- src/rules/association.py lines 191-220: legacy helpers (is_pick_confirmed, is_putback_confirmed,
+  detect_conceal_type) are dead code — backward compatibility stubs never called from runner
+- src/vision/tracker.py: TrackMemory.state and TrackMemory.risk_score are set but never read
+- src/pipeline/per_camera_processor.py and camera_worker.py appear partially redundant with runner.py
+- src/pos/connector.py is a stub — exists but not connected to any data source
+- src/rules/reconciliation.py logic disconnected from actual POS data source
+- apps/api/routes_reconcile.py has no real backend data source
+
+---
+
+## 6. EDGE_AI vs EXTERNAL REPOS COMPARISON
+
+### Level A — Feature Comparison
+
+Features EDGE_AI has that NO external repo has:
+  - Temporal FSM with state machine (BROWSING -> HIGH_RISK_EXIT progression)
+  - Weighted multi-signal risk accumulation with time-based decay
+  - Per-customer item basket tracking (PICK/CONCEAL/PUT_BACK/ON_COUNTER)
+  - Multi-camera adjacency graph with cross-camera ReID
+  - 5-zone polygon system (shelf, exit, bagging, scanner, checkout)
+  - Evidence clip generation with pre/post event frames
+  - Background DB writer (non-blocking inference)
+  - Full FastAPI REST API + SSE streaming
+  - Self-checkout mode (NONSCAN_BAGGING signal)
+  - SQLite corruption recovery
+  - RTSP exponential backoff reconnect
+
+Features external repos have that EDGE_AI LACKS:
+  - Training pipeline (R4 most sophisticated; R2, R8, R9, R14 have training scripts)
+  - Temporal video classifier / 3D-CNN / LRCN (R4, R11, R14, R15)
+  - Optical flow (R4 only)
+  - Email/Telegram/WhatsApp alerting (R1, R6 have multi-channel)
+  - Face recognition / blacklist matching (R1, R6)
+  - POS correlation logic (R3 — only repo with real POS-video cross-reference)
+  - LLM-generated alert narratives (R6)
+  - Heatmap visualization (R6)
+  - Store layout analytics
+  - Collective theft detection (R15 — 3-class: individual + collective)
+  - Anomaly detection baseline (R7 — unsupervised)
+  - Model benchmark tooling
+
+External repos outperforming EDGE_AI in specific areas:
+  R4  — ML sophistication (3D-CNN, optical flow, real supermarket training data)
+  R1  — Alerting richness (email + Telegram + face recognition)
+  R3  — POS realism (actually thinks about transaction correlation)
+  R7  — Academic novelty (GCAE+Transformer at CVPR 2025)
+
+### Level B — Logic Comparison
+
+  Logic Dimension          | EDGE_AI                                    | Best External
+  Shoplifting decision     | Temporal FSM, weighted signals, decay       | R4: 3D-CNN on 64-frame optical flow clip
+  Suspicion scoring        | Continuous [0-inf] with 1.8pt/s decay      | R15: 3-class with confidence %
+  Event logic              | Multi-signal sequential (shelf->pick->conceal->exit) | R11: 160-frame LRCN sequence
+  Pick detection           | Item disappearance + pose wrist heuristic   | R13: YOLOv8-pose keypoints -> XGBoost
+  Concealment classif.     | Skeleton geometry (5 types)                 | R4: 3D-CNN learned concealment types
+  Exit logic               | Zone polygon cross-check + conceal context  | R15 (inferred from 3-class logic)
+  FP suppression           | 20s cooldown + risk threshold               | R9: 128-frame rolling average
+  Temporal depth           | From first seen, decay but no reset         | R4: 64-frame hard window
+  POS integration          | Stub only                                   | R3: actual POS log timestamp matching
+
+### Level C — Code/Architecture Comparison
+
+  Dimension             | EDGE_AI                          | Best External         | Worst External
+  Modularity            | High (separate modules)          | R11 (clean package)   | R1 (monolithic)
+  Code quality          | High (type hints, dataclasses)   | R11, R7               | R4 (hardcoded paths)
+  Deployment readiness  | Medium-High (Docker)             | R1 (FastAPI stack)    | R4, R16
+  Experiment readiness  | LOW — no model swap              | R9 (5-model bench)    | Most
+  Multi-store scale     | Medium (single-process)          | None                  | All
+  API quality           | High (FastAPI, Pydantic, SSE)    | R1 (FastAPI)          | R3 (flat JSON)
+
+---
+
+## 7. FEATURES, LOGICS, MODULES, AND IDEAS TO IMPORT INTO EDGE_AI
+
+### BUCKET 1: Must Import Immediately
+
+1.1 Multi-channel Alert Delivery (from Repo 1)
+  - Add src/alerts/email.py (SMTP+MIME, inline snapshot)
+  - Add src/alerts/telegram.py (Bot API, photo+caption)
+  - Add src/alerts/sms.py (Twilio API)
+  - Route all alert types through existing event trigger in runner.py
+  - Why: EDGE_AI currently has only webhook. Real operators need mobile alerts
+  - Approach: partial copy from R1 + redesign for async
+
+1.2 Pose-Keypoint + XGBoost Suspicion Classifier (from Repo 13)
+  - Why: FSM's heuristic concealment detection (wrist-to-hip distance) is fragile; a learned pose
+    classifier would be more robust and adaptive
+  - How: Extract per-frame keypoint vectors from PoseEstimator; train XGBoost or lightweight MLP;
+    add as second-opinion classifier alongside FSM signals
+  - Files: Add src/rules/pose_classifier.py; feed output as signal into FSM
+  - Approach: redesign — use the concept, not the code
+
+1.3 Model Evaluation Harness (original gap, inspired by Repo 9's benchmark approach)
+  - Why: No way to objectively compare model configurations or measure false positive rate
+  - How: Add scripts/evaluate.py — replay labeled video, compare FSM outputs against ground truth,
+    compute precision/recall/F1/FPS
+  - Approach: new development inspired by multi-model benchmark idea
+
+1.4 Frame Differencing as Lightweight Motion Signal (from Repo 11)
+  - Why: cv2.absdiff() between consecutive frames is near-zero compute and filters static frames
+  - How: Add motion score to FrameSampler; skip inference on near-zero-motion frames
+  - Expected: 30-40% inference reduction on static camera views (idle store)
+  - Approach: conceptual borrowing, clean implementation
+
+### BUCKET 2: Good to Import in V2
+
+2.1 POS Transaction Correlation (from Repo 3)
+  - Why: The most realistic theft detection for convenience stores — unrecorded sales are the primary
+    loss vector
+  - How: Complete src/pos/connector.py to consume real POS log stream; implement anomalyDetector logic
+    in Python; add timestamp-window cross-reference between video events and transactions
+  - Files: src/pos/connector.py (complete), src/rules/reconciliation.py (wire up),
+    apps/api/routes_reconcile.py (connect)
+  - Approach: redesign in Python with proper queue-based architecture
+
+2.2 LRCN Temporal Classifier (from Repos 11, 15)
+  - Why: The FSM catches explicit signal sequences; LRCN would catch learned behavioral patterns
+  - How: Train lightweight LRCN on labeled 160-frame clips from EDGE_AI's evidence footage;
+    integrate as src/vision/temporal_classifier.py — output as TEMPORAL_PATTERN_MATCH signal (+3.0)
+  - Approach: train from scratch using EDGE_AI's own collected footage
+
+2.3 Face Recognition Blacklist (from Repo 1)
+  - Why: Known repeat offenders account for large fraction of retail theft
+  - How: Add src/vision/face_recognizer.py using DeepFace (not dlib); store face embeddings in SQLite;
+    alert immediately on blacklist match
+  - Note: Privacy considerations — need proper legal framework per jurisdiction
+  - Approach: partial copy from R1, modernized with DeepFace instead of dlib
+
+2.4 Operational Dashboard — React/Next.js (from Repo 6 concept)
+  - Why: Streamlit is fine for development but operators need purpose-built dashboard
+  - How: Build React/Next.js frontend (like Repo 1) with heatmap overlays, alert history, risk timeline
+  - Approach: new development
+
+2.5 Rolling Average False-Positive Suppressor (from Repo 9)
+  - Why: Single-frame signals (especially SPEED_SPIKE) can be noisy
+  - How: Add rolling N-frame confirmation window for each signal type before it contributes to risk score
+  - Files: Modify src/rules/theft_fsm.py to add per-signal confirmation buffers
+  - Approach: redesign
+
+### BUCKET 3: Advanced Features for Later
+
+3.1 Optical Flow Integration (from Repo 4)
+  - Why: Strongest concealment signal — hand trajectory during concealment captured by optical flow
+    even when appearance is ambiguous
+  - How: Compute optical flow on person crops; use as features in concealment classifier
+  - GPU requirement: high compute — GPU recommended
+  - Files: Add src/vision/optical_flow.py; integrate with concealment detection
+
+3.2 GCAE+Transformer Anomaly Detection (from Repo 7 — Shopformer, Apache 2.0)
+  - Why: Unsupervised baseline — train only on normal customer behavior; flag deviations
+  - How: Deploy Shopformer architecture; feed PoseEstimator keypoints as JSON; score anomaly
+  - Privacy advantage: works on skeleton-only, no raw video storage required
+  - Approach: Shopformer code is open-source (Apache 2.0); adapt for EDGE_AI pipeline
+
+3.3 Collective Theft Detection (from Repo 15 concept)
+  - Why: Coordinated theft (distraction + concealment) is common in gas stations
+  - How: Add multi-person coordination detection — track if multiple high-risk tracks are near each
+    other; detect if one person distracts while another conceals
+  - Files: Add src/rules/collective_fsm.py
+
+3.4 YOLO-NAS Upgrade (from Repo 12)
+  - Why: YOLO-NAS outperforms YOLOv8 at same compute budget
+  - How: Implement model plugin interface; add YOLO-NAS via super-gradients as alternative backend
+  - Files: Refactor src/vision/detector.py to DetectorProtocol
+
+3.5 LLM Alert Narrative (from Repo 6 concept)
+  - Why: Human-readable event summaries help non-technical security operators
+  - How: On event trigger, send context to local LLM (Ollama/llama3) for narrative generation;
+    include in webhook/email body
+  - Approach: new development using local LLM (no cloud dependency)
+
+### BUCKET 4: Not Worth Importing
+
+- ResNet50/VGG16/DenseNet121 frame-level classifiers (Repos 2, 8, 9): No temporal context,
+  whole-frame, superseded by EDGE_AI's FSM
+- React Native camera app (Repo 16): Irrelevant
+- Hardcoded Gmail credentials pattern (Repo 4): Never copy
+- Flat JSON files as data exchange (Repo 3): EDGE_AI already has proper SQLite + queues
+- POS simulator (Repo 3): Replace with real POS integration
+- Dual TensorFlow+PyTorch stack (Repo 6): Unnecessary complexity
+
+### BUCKET 5: Dangerous / Overengineered / Academic-Only — AVOID
+
+- face_recognition (dlib) (Repos 1, 6): Notoriously difficult to install; Windows/ARM problems;
+  use DeepFace or MTCNN+FaceNet instead
+- Shopformer GCAE as PRIMARY detection: AUC-ROC 69.15% is insufficient alone — supplemental only
+- Gate_Flow_SlowFast as primary model (Repo 4): V100 GPU required, 5s latency, not edge viable
+- VideoMAE as primary classifier (Repo 14): 600M+ parameters — not edge viable
+- 90-package pinned dependency hell (Repo 6): TF+PyTorch+Django+Streamlit+MongoDB simultaneously
+- Oversampling by duplication (Repo 12): Use weighted loss or SMOTE instead
+
+---
+
+## 8. EDGE_AI UPGRADE BLUEPRINT
+
+### Short-Term Upgrades (0-4 weeks)
+
+ST1. Multi-channel alerts
+  - Add src/alerts/email.py (SMTP+MIME, inline snapshot)
+  - Add src/alerts/telegram.py (Bot API, photo+caption)
+  - Add src/alerts/sms.py (Twilio API)
+  - Route through existing event trigger in runner.py
+  - Priority: HIGH — operators need mobile alerts
+
+ST2. Model evaluation harness (scripts/evaluate.py)
+  - Replay labeled video through EDGEGUARD pipeline
+  - Ground truth: CSV with {timestamp, event_type, true/false_positive}
+  - Outputs: precision, recall, F1, false positive rate, FPS
+  - Priority: CRITICAL — unblocks all model comparison work
+
+ST3. Model plugin interface
+  - Refactor src/vision/detector.py to accept DetectorProtocol
+  - Allow hot-swap via MODEL_BACKEND=yolo8n|yolo11|yolo_nas|onnx_custom
+  - Priority: HIGH — enables model experimentation without code changes
+
+ST4. Frame motion pre-filter
+  - Add cv2.absdiff() between consecutive frames in FrameSampler
+  - Skip YOLO inference on frames with motion score below threshold
+  - Expected: 30-40% inference reduction on idle-store views
+
+ST5. Dead code cleanup
+  - Remove legacy helpers from src/rules/association.py (lines 191-220)
+  - Disconnect TrackMemory.state and risk_score fields (never read)
+  - Document per_camera_processor.py vs runner.py boundary
+
+ST6. Zone auto-calibration helper
+  - Add script to interactively draw zone polygons on a video frame
+  - Output: zones.json in correct format
+  - Currently: manual coordinate entry is the only way
+
+### Mid-Term Upgrades (1-3 months)
+
+MT1. Pose-keypoint suspicion classifier
+  - Collect labeled keypoint samples from EDGE_AI's own SQLite (signals + timeline)
+  - Train XGBoost or lightweight MLP on flattened keypoint vectors per-frame
+  - Integrate as parallel risk signal in FSM (weight: 2.0-3.0 on positive prediction)
+  - Provides ML-learned concealment detection complementing rule-based geometry
+
+MT2. Complete POS integration
+  - Implement src/pos/connector.py to consume POS event stream (WebSocket or HTTP polling)
+  - Standard POS event: {transaction_id, type, amount, ts, register_id}
+  - Implement cross-reference: drawer_open + no transaction within 3s -> CASH_MISMATCH (+20)
+  - Wire up routes_reconcile.py to live data
+  - For gas stations: pump authorization + fuel dispense correlation
+
+MT3. LRCN temporal classifier
+  - Build data collection pipeline: extract 160-frame clips around FSM events (TP and FP)
+  - Label via scripts/label_events.py (human review of evidence clips)
+  - Train LRCN on motion-differenced frames (90x90, like Repo 11)
+  - Integrate as src/vision/temporal_classifier.py -> TEMPORAL_PATTERN_MATCH signal (+3.0)
+
+MT4. ReID backbone upgrade
+  - Replace unknown ReID embedder with documented MobileNetV2-based OSNet (from torchreid)
+  - Document embedding dimension and match threshold
+  - Add ReID accuracy measurement to evaluation harness
+
+MT5. Replay-vs-live parity
+  - Ensure frame timestamps in file replay and RTSP mode handled identically through entire pipeline
+  - Add FPS normalization in FrameSampler so evaluation is frame-count independent
+  - Enable deterministic replay for debugging
+
+MT6. Per-camera adaptive thresholds
+  - Add per_camera_thresholds to cameras.sample.json
+  - Allow each camera its own risk_threshold, hand_to_hip_distance_px, n_frames_hand_in_shelf
+  - Counter camera should have much higher sensitivity than aisle cameras
+
+MT7. Data labeling pipeline
+  - Build scripts/label_events.py: review evidence clips, label TP/FP/FN
+  - Store labels in SQLite events table (add label column: TP/FP/FN/UNKNOWN)
+  - Enables model evaluation (ST2) and LRCN training (MT3)
+
+### Long-Term Upgrades (3-12 months)
+
+LT1. Optical flow concealment detection
+  - Compute dense optical flow (Farneback or RAFT) on person crop windows
+  - Train lightweight concealment classifier on optical flow + RGB crop (R4 concept, lighter)
+  - Target: mobilenet-scale 3D-CNN on 32-frame clips (not V100-scale 64-frame)
+  - Expected: significantly better concealment detection than wrist-to-hip heuristic
+
+LT2. Custom retail item detection
+  - Collect store-specific product images
+  - Fine-tune YOLOv8 on custom classes (snack categories, beverages, electronics)
+  - Replace COCO item classes for specific store deployment
+  - Training pipeline: Roboflow or custom annotation
+
+LT3. Collective theft detection
+  - Detect multi-person coordinated patterns:
+    * Person A at shelf + Person B at exit simultaneously
+    * Person blocking camera while Person B conceals
+    * Multiple rapid shelf interactions from different persons in same zone
+  - Add src/rules/collective_fsm.py — cross-track state reasoning
+
+LT4. Anomaly detection baseline (Shopformer-inspired)
+  - Train normal behavior baseline on pose sequences from quiet-hours footage
+  - At inference: flag high-MSE reconstruction error as novel behavior signal
+  - Use as supplemental (not primary) risk signal (+1.0-2.0 on anomaly detection)
+
+LT5. Operational dashboard (React/Next.js)
+  - Multi-camera live view grid
+  - Real-time risk heat overlay on floor plan
+  - Alert queue with one-click review
+  - Evidence clip player
+  - Daily/weekly theft trend analytics
+  - Per-camera performance metrics
+  - Role-based access (security officer vs. manager vs. admin)
+
+LT6. Edge deployment packaging
+  - Docker image optimized for Jetson Nano / Raspberry Pi 5
+  - ONNX export of all models (YOLOv8, pose, ReID, LRCN)
+  - TensorRT acceleration for Jetson
+  - SystemD service for 24/7 auto-restart
+  - Remote monitoring via lightweight agent
+
+LT7. Multi-store deployment
+  - Central management server: aggregate events from multiple locations
+  - Per-store model configuration
+  - Cross-store analytics (which store, which product category)
+  - Central face recognition database (known offenders shared across locations)
+  - API: store -> central server -> security company dashboard
+
+LT8. LLM alert narratives (local model)
+  - On event: send {signals, state_progression, risk_score, camera_id, zone} to local Ollama/llama3
+  - Generate human-readable narrative for security operator
+  - Example output: "At 14:23, customer Track-7 spent 45 seconds near the confectionery shelf,
+    picked up an item, and moved their hand to their jacket interior pocket (HOODIE signal).
+    They then walked quickly toward the exit. Risk score: 18.5."
+  - Include narrative in email/webhook payload
+  - Fully local — no cloud dependency
+
+### 8.4 Final Recommended Architecture for EDGE_AI
+
+  +------------------------------------------------------------------+
+  |                       INPUT LAYER                                |
+  |  RTSPSource (exp. backoff) | VideoFileSource (PTS-based)         |
+  |  FrameSampler (rate ctrl)  | MotionPreFilter (absdiff)           |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |                     DETECTION LAYER                              |
+  |  DetectorPlugin interface (model-agnostic):                      |
+  |    -- YOLOv8n (current default)                                  |
+  |    -- YOLO-NAS (V2 upgrade)                                      |
+  |    -- Custom fine-tuned (store-specific items)                   |
+  |  Output: persons[], items[]                                      |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |                     TRACKING LAYER                               |
+  |  PersonTracker (ByteTrack + IOU fallback) -- KEEP               |
+  |  ItemTracker -- KEEP                                             |
+  |  ReIDEmbedder (OSNet backbone -- upgrade)                        |
+  |  GlobalIdentityResolver (composite score) -- KEEP               |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |               ANALYSIS LAYER (PARALLEL)                          |
+  |                                                                  |
+  |  PoseEstimator (YOLOv8-pose batch) -- KEEP                      |
+  |  +-- Wrist/hip geometry (KEEP)                                   |
+  |  +-- Pose keypoint classifier (XGBoost -- ADD)                   |
+  |                                                                  |
+  |  TemporalClassifier (LRCN 160-frame -- ADD)                     |
+  |  +-- Motion differencing preprocessing                           |
+  |  +-- Trained on store's own labeled clips                        |
+  |                                                                  |
+  |  OpticalFlowAnalyzer (V3 future)                                 |
+  |  AnomalyDetector (Shopformer GCAE -- V3)                        |
+  |  FaceRecognizer (MobileNetV2 -- optional)                        |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |                   RULES LAYER (KEEP + ENHANCE)                   |
+  |                                                                  |
+  |  ZoneEngine (5-zone polygon system) -- KEEP                      |
+  |  TheftRiskFSM (temporal state machine) -- KEEP + tune weights   |
+  |  +-- + POSE_CLASSIFIER_POSITIVE signal (+2.0)                    |
+  |  +-- + TEMPORAL_PATTERN_MATCH signal (+3.0)                      |
+  |  +-- + ANOMALY_SCORE_HIGH signal (+1.5)                          |
+  |  +-- + CASH_MISMATCH signal (+20.0) [from POS layer]            |
+  |  TheftStateMachine (basket tracking) -- KEEP                    |
+  |  CollectiveFSM (multi-person coordination -- ADD)               |
+  |  POSCorrelator (transaction timestamp matching -- ADD)           |
+  |  RiskEngine (decay + bands) -- KEEP                             |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |                     EVIDENCE LAYER                               |
+  |  ClipWriter (pre/post event frames) -- KEEP                      |
+  |  SnapshotCapture -- KEEP                                         |
+  |  RetentionPolicy -- KEEP                                         |
+  |  LabelingPipeline (human review -> TP/FP labels -- ADD)         |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |                     STORAGE LAYER                                |
+  |  SQLite (current) -- KEEP for single-store                       |
+  |  PostgreSQL (multi-store deployment -- future)                   |
+  |  DBWriteWorker (background queue) -- KEEP                       |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |                      ALERT LAYER (EXPAND)                        |
+  |  Webhook (current) -- KEEP                                       |
+  |  Email/SMTP (ADD) -- snapshot + risk summary                     |
+  |  Telegram Bot (ADD) -- mobile push                               |
+  |  SMS via Twilio (ADD) -- highest-risk events only                |
+  |  LLM Narrative (ADD) -- local Ollama                             |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |                       API LAYER                                  |
+  |  FastAPI (KEEP) -- current endpoints solid                       |
+  |  SSE streaming (KEEP)                                            |
+  |  WebRTC (KEEP + stabilize)                                       |
+  |  Config endpoints (KEEP + add hot-reload)                        |
+  +------------------------------------------------------------------+
+                                |
+  +------------------------------------------------------------------+
+  |                       UI LAYER                                   |
+  |  Streamlit (keep for dev/debug)                                  |
+  |  React/Next.js operational dashboard (ADD in V2)                 |
+  |  Store floor plan heatmap overlay                                |
+  |  Evidence clip review + labeling UI                              |
+  |  Multi-camera grid view                                          |
+  +------------------------------------------------------------------+
+
+---
+
+## 9. FINAL CTO VERDICT
+
+### On the External Repositories
+
+Do not be fooled by the 17-repo list. Of 17 repos:
+  - 2 are non-functional (Repos 16, 17)
+  - 6 are student notebooks with no deployment path (Repos 2, 8, 9, 10, 14, and code-less Repo 15)
+  - 3 are hackathon demos (Repos 3, 6, and partially 5)
+  - 3 have real research value but no production implementation (Repos 4, 7, 12)
+  - Only 2 are genuinely worth studying for production patterns (Repos 1 and 11)
+
+The 5 most valuable external repos for EDGE_AI:
+
+  1. Repo 4 (Gate_Flow_SlowFast) — Best ML architecture: optical flow + 3D-CNN, real supermarket data,
+     85.77% F1. Borrow the concept; build a lighter version.
+
+  2. Repo 3 (POS Correlation) — Most realistic theft scenario: unrecorded sales. The POS-video
+     cross-reference concept is immediately relevant for gas stations / convenience stores.
+
+  3. Repo 13 (YOLOv8-pose + XGBoost) — Most deployable ML addition: lightweight, fast, privacy-
+     preserving, adds a learned concealment classifier alongside existing heuristics.
+
+  4. Repo 11 (LRCN package) — Best packaged temporal classifier: motion differencing + LRCN,
+     pip installable, both live and file modes, designed for edge viability.
+
+  5. Repo 7 (Shopformer) — Most academically advanced: GCAE+Transformer on skeleton sequences,
+     CVPR 2025, unsupervised training, Apache 2.0 license, privacy-preserving.
+
+### On EDGE_AI (EdgeGuard)
+
+EdgeGuard is the best-architected system in this entire review. It has temporal FSM logic that none of
+the 17 external repos even attempt. Its zone system, multi-camera ReID, basket tracking, evidence clip
+generation, and production-grade RTSP handling are all superior to anything in the external repos.
+
+The critical gap is the detection brain. EdgeGuard is currently a sophisticated reasoning system with
+a single, fixed model for perception (YOLOv8n). You cannot experiment with models, cannot train custom
+detectors, cannot measure false positive rates objectively, and cannot add learned temporal classifiers.
+The rules layer is expert-designed; the perception layer needs a learning component.
+
+Three immediate priorities for EDGE_AI:
+
+  1. Model plugin interface + evaluation harness — without this, you cannot improve what you cannot measure
+
+  2. Multi-channel alerting — operators in the field need mobile push, not just webhook
+
+  3. POS integration — for gas stations and convenience stores, unrecorded transactions are the primary
+     theft vector; the stub needs to become real
+
+One honest criticism: The risk_threshold of 8.0 and the single set of signal weights are currently
+global constants with no ground-truth validation. You do not know the actual false positive rate in
+the field. This must be measured before any other optimization — you may be missing real events or,
+more likely, firing on innocent customers. The evaluation harness (ST2) should be the very first new
+code written.
+
+Bottom line: EdgeGuard has strong bones. The architecture is right. The gaps are the detection
+intelligence layer (ML models, training, evaluation) and the operational integration layer
+(POS, multi-channel alerts, production dashboard). Fix those in that order.
+
+---
+
+END OF REPORT
+
+Report generated: 2026-03-11
+Analysis: file-level code inspection + live GitHub repository fetching
+EDGE_AI version: github-main branch (commit 92294a4)
+Repos audited: 17 external + EdgeGuard (EDGE_AI)
+Total models analyzed: 28 distinct models across all repos
