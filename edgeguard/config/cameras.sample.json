@@ -1,0 +1,60 @@
+{
+  "adjacency": {
+    "cam-entry": ["cam-shelf-1", "cam-shelf-2", "cam-shelf-3", "cam-shelf-4"],
+    "cam-shelf-1": ["cam-counter", "cam-entry"],
+    "cam-shelf-2": ["cam-counter", "cam-entry"],
+    "cam-shelf-3": ["cam-counter", "cam-entry"],
+    "cam-shelf-4": ["cam-counter", "cam-entry"],
+    "cam-counter": ["cam-entry"]
+  },
+  "cameras": [
+    {
+      "camera_id": "cam-entry",
+      "camera_role": "ENTRY_EXIT",
+      "mode": "general_shopfloor",
+      "video_source_type": "rtsp",
+      "rtsp_url": "rtsp://<user>:<password>@<camera-ip>:554/<stream-path-1>",
+      "zones_path": "./config/zones.sample.json"
+    },
+    {
+      "camera_id": "cam-shelf-1",
+      "camera_role": "AISLE",
+      "mode": "general_shopfloor",
+      "video_source_type": "rtsp",
+      "rtsp_url": "rtsp://<user>:<password>@<camera-ip>:554/<stream-path-2>",
+      "zones_path": "./config/zones.sample.json"
+    },
+    {
+      "camera_id": "cam-shelf-2",
+      "camera_role": "AISLE",
+      "mode": "general_shopfloor",
+      "video_source_type": "rtsp",
+      "rtsp_url": "rtsp://<user>:<password>@<camera-ip>:554/<stream-path-3>",
+      "zones_path": "./config/zones.sample.json"
+    },
+    {
+      "camera_id": "cam-shelf-3",
+      "camera_role": "AISLE",
+      "mode": "general_shopfloor",
+      "video_source_type": "rtsp",
+      "rtsp_url": "rtsp://<user>:<password>@<camera-ip>:554/<stream-path-4>",
+      "zones_path": "./config/zones.sample.json"
+    },
+    {
+      "camera_id": "cam-shelf-4",
+      "camera_role": "AISLE",
+      "mode": "general_shopfloor",
+      "video_source_type": "rtsp",
+      "rtsp_url": "rtsp://<user>:<password>@<camera-ip>:554/<stream-path-5>",
+      "zones_path": "./config/zones.sample.json"
+    },
+    {
+      "camera_id": "cam-counter",
+      "camera_role": "COUNTER",
+      "mode": "general_shopfloor",
+      "video_source_type": "rtsp",
+      "rtsp_url": "rtsp://<user>:<password>@<camera-ip>:554/<stream-path-6>",
+      "zones_path": "./config/zones.sample.json"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+pytest-cache-files-*
+.mypy_cache
+data/debug
+api*.log
+streamlit*.log
+ui*.log
